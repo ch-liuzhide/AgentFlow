@@ -1,5 +1,5 @@
 import uuid from "uuid";
-import type { GraphContext } from "../graph";
+import type { GraphContext } from "../core";
 import { LogMode, LoggerConfig } from "./types";
 
 export class Logger {

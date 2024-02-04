@@ -1,4 +1,4 @@
-import type { GraphContext } from "../graph";
+import type { GraphContext } from "../core";
 
 /** 日志模式 */
 export enum LogMode {
