@@ -6,7 +6,8 @@ import postcss from "rollup-plugin-postcss";
 
 export default [
   {
-    input: "./packages/index.ts",
+    input: "./index.ts",
+    external: ["test/**"],
     output: [
       {
         dir: "lib",

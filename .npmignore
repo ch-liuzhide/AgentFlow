@@ -1,0 +1,31 @@
+# 忽略日志文件
+*.log
+
+# 忽略文档和示例
+docs/
+examples/
+
+# 忽略测试文件
+test/
+__tests__/
+*.test.js
+*.spec.js
+
+# 忽略配置文件
+.eslintrc
+.jshintrc
+.travis.yml
+
+# 忽略开发脚本
+scripts/
+
+# 忽略构建输出目录
+dist/
+build/
+node_modules/
+coverage/
+
+# 忽略版本控制系统目录
+.git
+.svn
+.hg
