@@ -7,7 +7,7 @@ export type TaskConfig = {
   taskContent: string;
   maxRepeatCount: number;
   action: TaskAction;
-  actionResultFomatter?: (v: any) => void
+  actionResultFormatter?: (v: any) => void
   nextTaskIds: string[];
   agent: Agent;
   eventBus: EventEmitter;

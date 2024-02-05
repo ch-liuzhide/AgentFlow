@@ -1,7 +1,7 @@
 import type { LogMode } from "../logger";
 import type { Task } from "../task";
 
-export type GraphContextConfig = {
+export type FlowContextConfig = {
   entryTask: Task[];
   taskPool: Task[];
   logMode: LogMode;

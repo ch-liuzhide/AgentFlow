@@ -1,21 +1,28 @@
 import type { Agent } from "../agent";
-import type { GraphContext } from "../core/graphContext";
+import type { FlowContext } from "../core/graphContext";
 import { Logger } from "../logger/logger";
 import { TaskAction, TaskConfig, TaskRunningState } from "./types";
 
 import uuid from "uuid";
 
 export class Task {
-  actionResultFomatter?: (v: any) => void;
+  actionResultFormatter?: (v: unknown) => void;
   constructor(config: TaskConfig) {
-    const { maxRepeatCount, taskName, taskContent, action, agent, actionResultFomatter } = config;
+    const {
+      maxRepeatCount,
+      taskName,
+      taskContent,
+      action,
+      agent,
+      actionResultFormatter,
+    } = config;
     this.taskId = uuid.v4();
     this.maxRepeatCount = maxRepeatCount;
     this.taskName = taskName;
     this.taskContent = taskContent;
     this.action = action;
     this.agent = agent;
-    this.actionResultFomatter = actionResultFomatter
+    this.actionResultFormatter = actionResultFormatter;
   }
   private taskId: string;
   private maxRepeatCount: number;
@@ -26,9 +33,9 @@ export class Task {
   private logger?: Logger;
   private agent: Agent;
   protected runCount: number = 0;
-  protected graphContext?: GraphContext;
-  protected actionResultStore: any[] = []
-  public taskRunningState: TaskRunningState = TaskRunningState.init
+  protected graphContext?: FlowContext;
+  protected actionResultStore: any[] = [];
+  public taskRunningState: TaskRunningState = TaskRunningState.init;
 
   public getTaskId = () => {
     return this.taskId;
@@ -57,8 +64,8 @@ export class Task {
     try {
       this.logger?.log(`${this.taskName}:start run action`);
       const res = await this.action(this.taskContent, input);
-      const formattedResult = this.actionResultFomatter?.(res)
-      this.actionResultStore.push(formattedResult ?? res)
+      const formattedResult = this.actionResultFormatter?.(res);
+      this.actionResultStore.push(formattedResult ?? res);
 
       this.logger?.log(`${this.taskName}:run action success`);
       this.logger?.log(res);
@@ -76,7 +83,7 @@ export class Task {
     }
   };
   /** bind graph context  */
-  public bindContext = (graphContext: GraphContext) => {
+  public bindContext = (graphContext: FlowContext) => {
     this.graphContext = graphContext;
     this.logger = new Logger({
       belongId: this.taskId,

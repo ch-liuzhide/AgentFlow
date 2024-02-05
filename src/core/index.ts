@@ -1,1 +1,1 @@
-export { GraphContext } from "./graphContext";
+export { FlowContext as GraphContext } from "./graphContext";
