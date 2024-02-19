@@ -1,12 +1,37 @@
+import type EventEmitter from "eventemitter3";
 import type { Agent } from "../agent";
-import type { FlowContext } from "../core/graphContext";
+import type { FlowContext } from "../core/flowContext";
 import { Logger } from "../logger/logger";
-import { TaskAction, TaskConfig, TaskRunningState } from "./types";
+import {
+  TaskAction,
+  TaskConfig,
+  TaskPayload,
+  TaskExecuteStatus,
+} from "./types";
 
-import uuid from "uuid";
+import { v4 } from "uuid";
+import { FlowEventName } from "../core";
 
 export class Task {
-  actionResultFormatter?: (v: unknown) => void;
+  private actionResultFormatter?: (v: unknown) => void;
+  private actionInputFormatter?: (
+    v: unknown | TaskPayload<unknown>[]
+  ) => TaskPayload<unknown>;
+  private taskId: string;
+  private maxRepeatCount: number;
+  private taskName: string;
+  private taskContent: string;
+  private action: TaskAction;
+  private logger?: Logger;
+  private agent?: Agent;
+  protected executeCount: number = 0;
+  protected flowContext?: FlowContext;
+  private eventBus?: EventEmitter;
+  protected actionResult: unknown;
+  protected taskRunningState: TaskExecuteStatus = TaskExecuteStatus.INIT;
+  protected prevTaskIds: Set<string>;
+  protected nextTaskIds: Set<string>;
+
   constructor(config: TaskConfig) {
     const {
       maxRepeatCount,
@@ -15,31 +40,77 @@ export class Task {
       action,
       agent,
       actionResultFormatter,
+      actionInputFormatter,
     } = config;
-    this.taskId = uuid.v4();
+    this.taskId = v4();
     this.maxRepeatCount = maxRepeatCount;
     this.taskName = taskName;
     this.taskContent = taskContent;
     this.action = action;
     this.agent = agent;
     this.actionResultFormatter = actionResultFormatter;
+    this.actionInputFormatter = actionInputFormatter;
+    this.prevTaskIds = new Set();
+    this.nextTaskIds = new Set();
   }
-  private taskId: string;
-  private maxRepeatCount: number;
-  private taskName: string;
-  private taskContent: string;
-  private nextTaskList?: Array<string>;
-  private action: TaskAction;
-  private logger?: Logger;
-  private agent: Agent;
-  protected runCount: number = 0;
-  protected graphContext?: FlowContext;
-  protected actionResultStore: any[] = [];
-  public taskRunningState: TaskRunningState = TaskRunningState.init;
-
-  public getTaskId = () => {
-    return this.taskId;
+  private handleTaskFailed = () => {
+    this.taskRunningState = TaskExecuteStatus.FAILED;
+    this.eventBus?.emit(FlowEventName.TaskExecuteFailed, this);
   };
+
+  private handleTaskSuccess = () => {
+    this.taskRunningState = TaskExecuteStatus.SUCCEED;
+    this.eventBus?.emit(FlowEventName.TaskExecuteSuccess, this);
+  };
+
+  /** bind graph context  */
+  public bindContext = (flowContext: FlowContext) => {
+    this.flowContext = flowContext;
+    this.eventBus = flowContext.eventBus;
+    this.logger = new Logger({
+      belongId: this.taskId,
+      graphContext: flowContext,
+    });
+  };
+
+  public addPrevTasks = (tasks: Task[], isSync: boolean = true) => {
+    for (const task of tasks) {
+      const taskId = task.getTaskId();
+      this.prevTaskIds.add(taskId);
+      this.removeTaskIdFromNext(taskId);
+      if (isSync) {
+        task.addNextTasks([this], false);
+      }
+    }
+  };
+
+  public addNextTasks = (tasks: Task[], isSync: boolean = true) => {
+    for (const task of tasks) {
+      const taskId = task.getTaskId();
+      this.nextTaskIds.add(taskId);
+      this.removeTaskIdFromPrev(taskId);
+      if (isSync) {
+        task.addPrevTasks([this], false);
+      }
+    }
+  };
+
+  public removeTaskIdFromNext = (taskId: string) => {
+    this.nextTaskIds.has(taskId) && this.nextTaskIds.delete(taskId);
+  };
+
+  public removeTaskIdFromPrev = (taskId: string) => {
+    this.prevTaskIds.has(taskId) && this.prevTaskIds.delete(taskId);
+  };
+
+  public getTaskId() {
+    return this.taskId;
+  }
+
+  public getTaskState() {
+    return this.taskRunningState;
+  }
+
   public getMaxRepeatCount = () => {
     return this.maxRepeatCount;
   };
@@ -47,15 +118,30 @@ export class Task {
     return this.taskName;
   };
   public getRunCount = () => {
-    return this.runCount;
-  };
-  public getNextTask = () => {
-    return this.nextTaskList;
+    return this.executeCount;
   };
 
-  /** execute action hook */
-  public runAction = async (input?: unknown) => {
-    if (this.runCount > this.maxRepeatCount) {
+  public getNextTaskIds = () => {
+    return Array.from(this.nextTaskIds);
+  };
+
+  public getPrevTaskIds() {
+    return Array.from(this.prevTaskIds);
+  }
+
+  public getActionResult = () => {
+    return this.actionResult;
+  };
+
+  /**
+   * run action
+   * @param input
+   * @returns
+   */
+  public runAction = async (input?: TaskPayload<unknown>[]) => {
+    this.taskRunningState = TaskExecuteStatus.RUNNING;
+    if (this.executeCount > this.maxRepeatCount) {
+      this.handleTaskFailed();
       return {
         success: false,
         errMessage: `Hit the maximum number of executions boundary:${this.maxRepeatCount}`,
@@ -63,31 +149,22 @@ export class Task {
     }
     try {
       this.logger?.log(`${this.taskName}:start run action`);
-      const res = await this.action(this.taskContent, input);
+      const formattedInput =
+        (input && this.actionInputFormatter?.(input)) ?? input;
+      const res = await this.action(
+        this.taskContent,
+        formattedInput,
+        this.agent
+      );
       const formattedResult = this.actionResultFormatter?.(res);
-      this.actionResultStore.push(formattedResult ?? res);
-
+      this.executeCount = this.executeCount + 1;
+      this.actionResult = formattedResult ?? res;
       this.logger?.log(`${this.taskName}:run action success`);
       this.logger?.log(res);
-      this.runCount = this.runCount + 1;
-      return {
-        success: true,
-        resultInfo: res,
-      };
+      this.handleTaskSuccess();
     } catch (e) {
       this.logger?.log(`${this.taskName}:run action failed`);
-      return {
-        success: false,
-        errMessage: e,
-      };
+      this.handleTaskFailed();
     }
-  };
-  /** bind graph context  */
-  public bindContext = (graphContext: FlowContext) => {
-    this.graphContext = graphContext;
-    this.logger = new Logger({
-      belongId: this.taskId,
-      graphContext: graphContext,
-    });
   };
 }

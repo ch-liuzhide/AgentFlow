@@ -1,35 +1,29 @@
-import type EventEmitter from "eventemitter3";
-import { Agent } from "../agent";
+import type { Agent } from "../agent";
 
 export type TaskConfig = {
-  uniqueId: string;
   taskName: string;
   taskContent: string;
   maxRepeatCount: number;
   action: TaskAction;
-  actionResultFormatter?: (v: any) => void
-  nextTaskIds: string[];
-  agent: Agent;
-  eventBus: EventEmitter;
+  actionInputFormatter?: (v: TaskPayload<unknown>[]) => TaskPayload<unknown>;
+  actionResultFormatter?: (v: unknown) => void;
+  agent?: Agent;
+};
 
+export type TaskPayload<T> = {
+  propertyName: string;
+  value: T | TaskPayload<T>;
 };
 
 export type TaskAction = (
-  actionDescription: string,
-  /** should be multiple datasets output results */
-  input?: unknown
-) => Promise<any>;
+  taskContent: string,
+  input?: TaskPayload<unknown>,
+  agent?: Agent
+) => Promise<TaskPayload<unknown>>;
 
-/** 任务执行状态 */
-export enum TaskRunningState {
-  /** 初始状态 */
-  init = "init",
-  /** 执行等待中 */
-  pending = "pending",
-  /** 执行中 */
-  running = "running",
-  /** 执行成功 */
-  successed = "successed",
-  /** 执行失败 */
-  failed = "failed",
+export enum TaskExecuteStatus {
+  INIT = "INIT",
+  RUNNING = "RUNNING",
+  SUCCEED = "SUCCEED",
+  FAILED = "FAILED",
 }

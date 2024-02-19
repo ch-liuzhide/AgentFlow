@@ -1,4 +1,4 @@
-import uuid from "uuid";
+import {v4} from "uuid";
 import type { GraphContext } from "../core";
 import { LogMode, LoggerConfig } from "./types";
 
@@ -10,7 +10,7 @@ export class Logger {
 
   constructor(config: LoggerConfig) {
     const { belongId, graphContext } = config;
-    this.logId = uuid.v4();
+    this.logId = v4();
     this.logMode = graphContext.logMode;
     this.belongId = belongId;
     this.graphContext = graphContext;
