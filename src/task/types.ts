@@ -1,25 +1,37 @@
-import type { Agent } from "../agent";
-
 export type TaskConfig = {
   taskName: string;
   taskContent: string;
   maxRepeatCount: number;
-  action: TaskAction;
-  actionInputFormatter?: (v: TaskPayload<unknown>[]) => TaskPayload<unknown>;
-  actionResultFormatter?: (v: unknown) => void;
-  agent?: Agent;
+  inputMeta?: TaskPayloadMeta[];
+  outputMeta: TaskPayloadMeta;
+  // TODO: Consider how to materialize user-defined actions.
+  actionConfig: ActionConfig;
 };
 
-export type TaskPayload<T> = {
+export type PayloadChainInfo = {
   propertyName: string;
-  value: T | TaskPayload<T>;
+  prevTaskId: string;
+  prevPropertyName: string;
 };
 
-export type TaskAction = (
-  taskContent: string,
-  input?: TaskPayload<unknown>,
-  agent?: Agent
-) => Promise<TaskPayload<unknown>>;
+export type ActionConfig = {
+  action: TaskAction;
+  actionInputFormatter?: (v: TaskPayload[]) => TaskPayload[];
+  actionOutputFormatter?: (v: unknown) => TaskPayload;
+};
+
+export type TaskPayloadMeta = {
+  propertyName: string;
+  propertyDesc: string;
+  propertyType: "boolean" | "number" | "string";
+};
+
+export type TaskPayload = {
+  propertyName: string;
+  value?: boolean | string | number | TaskPayload;
+};
+
+export type TaskAction = (payload?: TaskPayload[]) => Promise<unknown>;
 
 export enum TaskExecuteStatus {
   INIT = "INIT",

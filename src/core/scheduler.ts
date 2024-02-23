@@ -32,7 +32,7 @@ export class Scheduler {
     this.timeout = timeout * 1000;
     const taskMap: Map<string, Task> = new Map();
     taskPool.forEach((task) => {
-      taskMap.set(task.getTaskId(), task);
+      taskMap.set(task.id, task);
     });
     this.taskMap = taskMap;
     eventBus.on(FlowEventName.TaskExecuteFailed, this.handleTaskFailed);
@@ -60,7 +60,7 @@ export class Scheduler {
   private getEndTask = () => {
     const endTask: Task[] = [];
     this.taskMap.forEach((task) => {
-      const nextTaskIds = task.getNextTaskIds();
+      const nextTaskIds = task.nextTaskIds;
       if (!nextTaskIds || !nextTaskIds.length) {
         endTask.push(task);
       }
@@ -69,15 +69,13 @@ export class Scheduler {
   };
 
   private getPrevTasks = (task: Task): Task[] => {
-    return task
-      .getPrevTaskIds()
+    return task.prevTaskIds
       .map((taskId) => this.taskMap.get(taskId))
       .filter(Boolean) as Task[];
   };
 
   private getNextTasks = (task: Task): Task[] => {
-    return task
-      .getNextTaskIds()
+    return task.nextTaskIds
       .map((taskId) => this.taskMap.get(taskId))
       .filter(Boolean) as Task[];
   };
@@ -85,8 +83,8 @@ export class Scheduler {
   private isAllEndTaskTerminated = () => {
     return this.endTask.every(
       (task) =>
-        task.getTaskState() === TaskExecuteStatus.SUCCEED ||
-        task.getTaskState() === TaskExecuteStatus.FAILED
+        task.status === TaskExecuteStatus.SUCCEED ||
+        task.status === TaskExecuteStatus.FAILED
     );
   };
 
@@ -122,23 +120,24 @@ export class Scheduler {
     if (nextTasks.length) {
       nextTasks.forEach((nextTask) => {
         const prevTasks = this.getPrevTasks(nextTask);
-        let outputList: unknown[] = [];
+        let outputList: TaskPayload[] = [];
         if (
           prevTasks.every(
-            (prevTask) => prevTask.getTaskState() === TaskExecuteStatus.SUCCEED
+            (prevTask) => prevTask.status === TaskExecuteStatus.SUCCEED
           )
         ) {
-          outputList = prevTasks.map((prevTask) => prevTask.getActionResult());
+          outputList = prevTasks.map((prevTask) => prevTask.actionResult!);
         } else {
           // If not all upstream tasks have succeeded, ignore this Event response.
           return;
         }
         this._execute(nextTask!, outputList);
       });
+    } else if (this.isAllEndTaskTerminated()) {
+      this.schedulerStatus = SchedulerStatus.Terminated;
     } else {
-      if (this.isAllEndTaskTerminated()) {
-        this.schedulerStatus = SchedulerStatus.Terminated;
-      }
+      // The current task has been completed and there are no subsequent tasks, but there are still terminal node tasks in the schedule that have not finished.
+      // do nothing
     }
   };
 
@@ -156,17 +155,17 @@ export class Scheduler {
   /**
    *
    * @param task
-   * @param input prev task output or manual input
+   * @param payload prev task output or manual input
    * @returns
    */
-  private _execute = async (task: Task, input?: TaskPayload<unknown>[]) => {
+  private _execute = async (task: Task, payload?: TaskPayload[]) => {
     // If the number of tasks currently being executed exceeds the maximum allowed, then subsequent tasks are queued.
     if (this.count >= this.max) {
       this.queue.push(task);
       return;
     }
     this.count++;
-    await task.runAction(input);
+    await task.runAction(payload);
     this.count--;
     if (this.queue.length) {
       await this._execute(this.queue.shift()!);

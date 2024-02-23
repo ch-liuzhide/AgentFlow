@@ -1,82 +1,127 @@
 import type EventEmitter from "eventemitter3";
-import type { Agent } from "../agent";
 import type { FlowContext } from "../core/flowContext";
 import { Logger } from "../logger/logger";
 import {
-  TaskAction,
   TaskConfig,
   TaskPayload,
   TaskExecuteStatus,
+  ActionConfig,
+  PayloadChainInfo,
+  TaskPayloadMeta,
 } from "./types";
 
 import { v4 } from "uuid";
 import { FlowEventName } from "../core";
+import { Action } from "./action";
 
 export class Task {
-  private actionResultFormatter?: (v: unknown) => void;
-  private actionInputFormatter?: (
-    v: unknown | TaskPayload<unknown>[]
-  ) => TaskPayload<unknown>;
-  private taskId: string;
-  private maxRepeatCount: number;
-  private taskName: string;
-  private taskContent: string;
-  private action: TaskAction;
-  private logger?: Logger;
-  private agent?: Agent;
-  protected executeCount: number = 0;
-  protected flowContext?: FlowContext;
   private eventBus?: EventEmitter;
-  protected actionResult: unknown;
-  protected taskRunningState: TaskExecuteStatus = TaskExecuteStatus.INIT;
-  protected prevTaskIds: Set<string>;
-  protected nextTaskIds: Set<string>;
+  private maxRepeatCount: number;
+  private _taskName: string;
+  private taskContent: string;
+  private logger?: Logger;
+  protected _taskId: string;
+  protected _action?: Action;
+  protected _executeCount: number = 0;
+  protected _flowContext?: FlowContext;
+  protected _actionResult?: TaskPayload;
+  protected _status: TaskExecuteStatus = TaskExecuteStatus.INIT;
+  protected _prevTaskIds: Set<string>;
+  protected _nextTaskIds: Set<string>;
+  protected _payloadChainInfo: PayloadChainInfo[] = [];
+  protected _inputMeta: TaskPayloadMeta[] = [];
+  protected _outputMeta: TaskPayloadMeta;
+
+  public get action() {
+    return this._action;
+  }
 
   constructor(config: TaskConfig) {
-    const {
-      maxRepeatCount,
-      taskName,
-      taskContent,
-      action,
-      agent,
-      actionResultFormatter,
-      actionInputFormatter,
-    } = config;
-    this.taskId = v4();
+    const { maxRepeatCount, taskName, taskContent, inputMeta, outputMeta } =
+      config;
+    this._taskId = v4();
     this.maxRepeatCount = maxRepeatCount;
-    this.taskName = taskName;
+    this._taskName = taskName;
     this.taskContent = taskContent;
-    this.action = action;
-    this.agent = agent;
-    this.actionResultFormatter = actionResultFormatter;
-    this.actionInputFormatter = actionInputFormatter;
-    this.prevTaskIds = new Set();
-    this.nextTaskIds = new Set();
+    this._prevTaskIds = new Set();
+    this._nextTaskIds = new Set();
+    this._inputMeta = inputMeta ?? [];
+    this._outputMeta = outputMeta;
   }
+
+  public get id() {
+    return this._taskId;
+  }
+
+  public get outputMeta() {
+    return this._outputMeta;
+  }
+
+  public get inputMeta() {
+    return this._inputMeta;
+  }
+
+  public get nextTaskIds() {
+    return Array.from(this._nextTaskIds);
+  }
+
+  public get prevTaskIds() {
+    return Array.from(this._prevTaskIds);
+  }
+
+  public get actionResult() {
+    if (!this._action) {
+      throw new Error(
+        `The task ${this._taskName} is not associated with an executable action.`
+      );
+    }
+    return this._action.result;
+  }
+
+  public get taskName() {
+    return this._taskName;
+  }
+
+  public get status() {
+    return this._status;
+  }
+
+  public getMaxRepeatCount = () => {
+    return this.maxRepeatCount;
+  };
+
+  public getRunCount = () => {
+    return this._executeCount;
+  };
+
   private handleTaskFailed = () => {
-    this.taskRunningState = TaskExecuteStatus.FAILED;
+    this._status = TaskExecuteStatus.FAILED;
     this.eventBus?.emit(FlowEventName.TaskExecuteFailed, this);
   };
 
   private handleTaskSuccess = () => {
-    this.taskRunningState = TaskExecuteStatus.SUCCEED;
+    this._status = TaskExecuteStatus.SUCCEED;
     this.eventBus?.emit(FlowEventName.TaskExecuteSuccess, this);
   };
 
   /** bind graph context  */
   public bindContext = (flowContext: FlowContext) => {
-    this.flowContext = flowContext;
+    this._flowContext = flowContext;
     this.eventBus = flowContext.eventBus;
     this.logger = new Logger({
-      belongId: this.taskId,
+      belongId: this._taskId,
       graphContext: flowContext,
     });
   };
 
+  public bindAction = (config: ActionConfig) => {
+    this._action = new Action(config);
+  };
+
   public addPrevTasks = (tasks: Task[], isSync: boolean = true) => {
     for (const task of tasks) {
-      const taskId = task.getTaskId();
-      this.prevTaskIds.add(taskId);
+      const taskId = task.id;
+      this._prevTaskIds.add(taskId);
       this.removeTaskIdFromNext(taskId);
       if (isSync) {
         task.addNextTasks([this], false);
@@ -86,8 +131,8 @@ export class Task {
 
   public addNextTasks = (tasks: Task[], isSync: boolean = true) => {
     for (const task of tasks) {
-      const taskId = task.getTaskId();
-      this.nextTaskIds.add(taskId);
+      const taskId = task.id;
+      this._nextTaskIds.add(taskId);
       this.removeTaskIdFromPrev(taskId);
       if (isSync) {
         task.addPrevTasks([this], false);
@@ -96,41 +141,47 @@ export class Task {
   };
 
   public removeTaskIdFromNext = (taskId: string) => {
-    this.nextTaskIds.has(taskId) && this.nextTaskIds.delete(taskId);
+    this._nextTaskIds.has(taskId) && this._nextTaskIds.delete(taskId);
   };
 
   public removeTaskIdFromPrev = (taskId: string) => {
-    this.prevTaskIds.has(taskId) && this.prevTaskIds.delete(taskId);
+    this._prevTaskIds.has(taskId) && this._prevTaskIds.delete(taskId);
   };
 
-  public getTaskId() {
-    return this.taskId;
-  }
-
-  public getTaskState() {
-    return this.taskRunningState;
-  }
-
-  public getMaxRepeatCount = () => {
-    return this.maxRepeatCount;
-  };
-  public getTaskName = () => {
-    return this.taskName;
-  };
-  public getRunCount = () => {
-    return this.executeCount;
+  public addInputMeta = (metaItem: TaskPayloadMeta) => {
+    if (this._inputMeta) {
+      this._inputMeta.push(metaItem);
+    } else {
+      this._inputMeta = [metaItem];
+    }
   };
 
-  public getNextTaskIds = () => {
-    return Array.from(this.nextTaskIds);
+  public setInputMeta = (meta: TaskPayloadMeta[]) => {
+    this._inputMeta = meta;
   };
 
-  public getPrevTaskIds() {
-    return Array.from(this.prevTaskIds);
-  }
+  public setOutputMeta = (metaItem: TaskPayloadMeta) => {
+    this._outputMeta = metaItem;
+  };
 
-  public getActionResult = () => {
-    return this.actionResult;
+  /**
+   * Associate a certain input in the current task with the output field of an upstream task.
+   * @param prevTask upstream task
+   * @param curPropertyName input field
+   */
+  public bindPreOutput = (prevTask: Task, curPropertyName: string) => {
+    if (
+      !this.inputMeta?.find((item) => item.propertyName === curPropertyName)
+    ) {
+      throw new Error(
+        `bindPreOutput error, can not find ${curPropertyName} in ${this.inputMeta}`
+      );
+    }
+    this._payloadChainInfo.push({
+      propertyName: curPropertyName,
+      prevTaskId: prevTask.id,
+      prevPropertyName: prevTask.outputMeta.propertyName,
+    });
   };
 
   /**
@@ -138,32 +189,29 @@ export class Task {
    * @param input
    * @returns
    */
-  public runAction = async (input?: TaskPayload<unknown>[]) => {
-    this.taskRunningState = TaskExecuteStatus.RUNNING;
-    if (this.executeCount > this.maxRepeatCount) {
-      this.handleTaskFailed();
-      return {
-        success: false,
-        errMessage: `Hit the maximum number of executions boundary:${this.maxRepeatCount}`,
-      };
-    }
+  public runAction = async (input?: TaskPayload[]) => {
     try {
-      this.logger?.log(`${this.taskName}:start run action`);
-      const formattedInput =
-        (input && this.actionInputFormatter?.(input)) ?? input;
-      const res = await this.action(
-        this.taskContent,
-        formattedInput,
-        this.agent
-      );
-      const formattedResult = this.actionResultFormatter?.(res);
-      this.executeCount = this.executeCount + 1;
-      this.actionResult = formattedResult ?? res;
-      this.logger?.log(`${this.taskName}:run action success`);
+      this._status = TaskExecuteStatus.RUNNING;
+      if (this._executeCount > this.maxRepeatCount) {
+        throw new Error(
+          `Hit the maximum number of executions boundary:${this.maxRepeatCount}`
+        );
+      }
+      this.logger?.log(`${this._taskName}:start run action`);
+      // transform preTask output to current input meta
+      const newInput = this._inputMeta.map((metaItem) => {
+        return (
+          input?.find(
+            (fileItem) => fileItem.propertyName === metaItem.propertyName
+          ) || { propertyName: metaItem.propertyName, value: undefined }
+        );
+      });
+      const res = await this._action!.run(this.taskContent, newInput);
+      this.logger?.log(`${this._taskName}:run action success`);
       this.logger?.log(res);
       this.handleTaskSuccess();
     } catch (e) {
-      this.logger?.log(`${this.taskName}:run action failed`);
+      this.logger?.log(`[Error]:run action failed.\n${e}`);
       this.handleTaskFailed();
     }
   };
