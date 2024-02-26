@@ -198,26 +198,6 @@ export class Task {
   };
 
   /**
-   * Associate a certain input in the current task with the output field of an upstream task.
-   * @param prevTask upstream task
-   * @param curPropertyName input field
-   */
-  public setStaticInput = (value: unknown, curPropertyName: string) => {
-    if (
-      !this.inputMeta?.find((item) => item.propertyName === curPropertyName)
-    ) {
-      throw new Error(
-        `setStaticInput error, can not find ${curPropertyName} in ${this.inputMeta}`
-      );
-    }
-    this._payloadChainInfo.push({
-      propertyName: curPropertyName,
-      prevTaskId: prevTask.id,
-      prevPropertyName: prevTask.outputMeta.propertyName,
-    });
-  };
-
-  /**
    * run action
    * @param input
    * @returns
