@@ -120,24 +120,23 @@ export class Scheduler {
     if (nextTasks.length) {
       nextTasks.forEach((nextTask) => {
         const prevTasks = this.getPrevTasks(nextTask);
-        let outputList: TaskPayload[] = [];
         if (
           prevTasks.every(
             (prevTask) => prevTask.status === TaskExecuteStatus.SUCCEED
           )
         ) {
-          outputList = prevTasks.map((prevTask) => prevTask.actionResult!);
+          this._execute(nextTask!);
         } else {
           // If not all upstream tasks have succeeded, ignore this Event response.
           return;
         }
-        this._execute(nextTask!, outputList);
       });
     } else if (this.isAllEndTaskTerminated()) {
       this.schedulerStatus = SchedulerStatus.Terminated;
     } else {
       // The current task has been completed and there are no subsequent tasks, but there are still terminal node tasks in the schedule that have not finished.
       // do nothing
+      return;
     }
   };
 
@@ -153,19 +152,32 @@ export class Scheduler {
   };
 
   /**
-   *
-   * @param task
-   * @param payload prev task output or manual input
+   * Execute a specific task node.
+   * @param task The task node prepared for execution.
    * @returns
    */
-  private _execute = async (task: Task, payload?: TaskPayload[]) => {
+  private _execute = async (task: Task) => {
     // If the number of tasks currently being executed exceeds the maximum allowed, then subsequent tasks are queued.
     if (this.count >= this.max) {
       this.queue.push(task);
       return;
     }
+    const inputPayload: TaskPayload = new Map();
+    const prevTasks = this.getPrevTasks(task);
+    task.payloadChainInfo.forEach((propertyChain) => {
+      const prevTask = prevTasks.find(
+        (prevTask) => prevTask.id === propertyChain.prevTaskId
+      );
+      if (prevTask) {
+        prevTask &&
+          inputPayload.set(
+            propertyChain.propertyName,
+            prevTask.taskOutput.get(propertyChain.prevPropertyName)! as never
+          );
+      }
+    });
     this.count++;
-    await task.runAction(payload);
+    await task.runAction(inputPayload);
     this.count--;
     if (this.queue.length) {
       await this._execute(this.queue.shift()!);

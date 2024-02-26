@@ -5,7 +5,7 @@ export type TaskConfig = {
   inputMeta?: TaskPayloadMeta[];
   outputMeta: TaskPayloadMeta;
   // TODO: Consider how to materialize user-defined actions.
-  actionConfig: ActionConfig;
+  actionConfig?: ActionConfig;
 };
 
 export type PayloadChainInfo = {
@@ -16,7 +16,7 @@ export type PayloadChainInfo = {
 
 export type ActionConfig = {
   action: TaskAction;
-  actionInputFormatter?: (v: TaskPayload[]) => TaskPayload[];
+  actionInputFormatter?: (v: TaskPayload) => TaskPayload;
   actionOutputFormatter?: (v: unknown) => TaskPayload;
 };
 
@@ -26,12 +26,12 @@ export type TaskPayloadMeta = {
   propertyType: "boolean" | "number" | "string";
 };
 
-export type TaskPayload = {
-  propertyName: string;
-  value?: boolean | string | number | TaskPayload;
-};
+export type TaskPayload = Map<string, string | boolean | number | TaskPayload>;
 
-export type TaskAction = (payload?: TaskPayload[]) => Promise<unknown>;
+export type TaskAction = (
+  taskContent: string,
+  payload?: TaskPayload
+) => Promise<unknown>;
 
 export enum TaskExecuteStatus {
   INIT = "INIT",

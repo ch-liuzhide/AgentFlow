@@ -32,13 +32,15 @@ export class Task {
   protected _inputMeta: TaskPayloadMeta[] = [];
   protected _outputMeta: TaskPayloadMeta;
 
-  public get action() {
-    return this._action;
-  }
-
   constructor(config: TaskConfig) {
-    const { maxRepeatCount, taskName, taskContent, inputMeta, outputMeta } =
-      config;
+    const {
+      maxRepeatCount,
+      taskName,
+      taskContent,
+      inputMeta,
+      outputMeta,
+      actionConfig,
+    } = config;
     this._taskId = v4();
     this.maxRepeatCount = maxRepeatCount;
     this._taskName = taskName;
@@ -47,10 +49,19 @@ export class Task {
     this._nextTaskIds = new Set();
     this._inputMeta = inputMeta ?? [];
     this._outputMeta = outputMeta;
+    actionConfig && this.bindAction(actionConfig);
   }
 
   public get id() {
     return this._taskId;
+  }
+
+  public get action() {
+    return this._action;
+  }
+
+  public get payloadChainInfo() {
+    return this._payloadChainInfo;
   }
 
   public get outputMeta() {
@@ -69,13 +80,15 @@ export class Task {
     return Array.from(this._prevTaskIds);
   }
 
-  public get actionResult() {
+  public get taskOutput() {
     if (!this._action) {
       throw new Error(
         `The task ${this._taskName} is not associated with an executable action.`
       );
     }
-    return this._action.result;
+    const output = new Map();
+    output.set(this._outputMeta.propertyName, this._action.result);
+    return output;
   }
 
   public get taskName() {
@@ -185,11 +198,31 @@ export class Task {
   };
 
   /**
+   * Associate a certain input in the current task with the output field of an upstream task.
+   * @param prevTask upstream task
+   * @param curPropertyName input field
+   */
+  public setStaticInput = (value: unknown, curPropertyName: string) => {
+    if (
+      !this.inputMeta?.find((item) => item.propertyName === curPropertyName)
+    ) {
+      throw new Error(
+        `setStaticInput error, can not find ${curPropertyName} in ${this.inputMeta}`
+      );
+    }
+    this._payloadChainInfo.push({
+      propertyName: curPropertyName,
+      prevTaskId: prevTask.id,
+      prevPropertyName: prevTask.outputMeta.propertyName,
+    });
+  };
+
+  /**
    * run action
    * @param input
    * @returns
    */
-  public runAction = async (input?: TaskPayload[]) => {
+  public runAction = async (input?: TaskPayload) => {
     try {
       this._status = TaskExecuteStatus.RUNNING;
       if (this._executeCount > this.maxRepeatCount) {
@@ -198,15 +231,7 @@ export class Task {
         );
       }
       this.logger?.log(`${this._taskName}:start run action`);
-      // transform preTask output to current input meta
-      const newInput = this._inputMeta.map((metaItem) => {
-        return (
-          input?.find(
-            (fileItem) => fileItem.propertyName === metaItem.propertyName
-          ) || { propertyName: metaItem.propertyName, value: undefined }
-        );
-      });
-      const res = await this._action!.run(this.taskContent, newInput);
+      const res = await this._action!.run(this.taskContent, input);
       this.logger?.log(`${this._taskName}:run action success`);
       this.logger?.log(res);
       this.handleTaskSuccess();

@@ -37,10 +37,10 @@ export class FlowContext {
   };
 
   public getTaskById = (taskId: string) => {
-    return this.taskPool.find((item) => item.getTaskId() === taskId);
+    return this.taskPool.find((item) => item.id === taskId);
   };
 
-  public start = async () => {
+  public run = async () => {
     this.taskPool.forEach((task) => task.bindContext(this));
     this.scheduler = new Scheduler(
       this.eventBus,
@@ -51,6 +51,7 @@ export class FlowContext {
       60
     );
     await this.scheduler.start();
+    // todo:collect all task result and return
   };
 
   public reset = () => {};
